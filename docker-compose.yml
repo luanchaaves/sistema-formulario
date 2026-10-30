@@ -1,0 +1,70 @@
+version: "3.8"
+
+services:
+  # =========================================================================
+  # Banco de Dados PostgreSQL 16 com volume persistente
+  # =========================================================================
+  postgres:
+    image: postgres:16-alpine
+    container_name: formflow_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-formflow_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-FormFlow_Secret_Pass_2026!}
+      POSTGRES_DB: ${POSTGRES_DB:-formflow_db}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-formflow_user} -d ${POSTGRES_DB:-formflow_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - formflow_network
+
+  # =========================================================================
+  # Aplicação FormFlow (Next.js 16 Standalone + Prisma)
+  # =========================================================================
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: formflow_app
+    restart: unless-stopped
+    ports:
+      - "3004:3004"
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-formflow_user}:${POSTGRES_PASSWORD:-FormFlow_Secret_Pass_2026!}@postgres:5432/${POSTGRES_DB:-formflow_db}?schema=public
+      SESSION_SECRET: ${SESSION_SECRET:-change_this_to_a_secure_random_64_char_secret_in_production}
+      NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-http://localhost:3004}
+      ADMIN_INITIAL_EMAIL: ${ADMIN_INITIAL_EMAIL:-admin@formflow.local}
+      ADMIN_INITIAL_PASSWORD: ${ADMIN_INITIAL_PASSWORD:-FormFlow@2026!Admin}
+      NODE_ENV: production
+      PORT: 3004
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - formflow_network
+
+  # =========================================================================
+  # Cloudflare Tunnel (Opcional - Zero Trust / Publicação HTTPS sem abrir portas)
+  # Para ativar: docker compose --profile cloudflare up -d
+  # =========================================================================
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: formflow_cloudflared
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
+    networks:
+      - formflow_network
+    profiles:
+      - cloudflare
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  formflow_network:
+    driver: bridge

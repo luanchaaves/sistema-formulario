@@ -1,0 +1,118 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  EDITOR
+  VIEWER
+}
+
+enum FormStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+model User {
+  id           String     @id @default(cuid())
+  name         String
+  email        String     @unique
+  passwordHash String
+  role         Role       @default(EDITOR)
+  active       Boolean    @default(true)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  forms        Form[]
+  sessions     Session[]
+  auditLogs    AuditLog[]
+
+  @@index([email])
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([token])
+  @@index([userId])
+}
+
+model Form {
+  id               String       @id @default(cuid())
+  title            String
+  description      String?
+  slug             String       @unique
+  status           FormStatus   @default(DRAFT)
+  ownerId          String
+  owner            User         @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  currentVersionId String?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+  publishedAt      DateTime?
+
+  versions         FormVersion[]
+  submissions      Submission[]
+  auditLogs        AuditLog[]
+
+  @@index([slug])
+  @@index([ownerId])
+  @@index([status])
+}
+
+model FormVersion {
+  id             String       @id @default(cuid())
+  formId         String
+  form           Form         @relation(fields: [formId], references: [id], onDelete: Cascade)
+  version        Int          @default(1)
+  schema         Json         // Array of pages & fields with types, rules, options, conditionals
+  designSettings Json         // Styling tokens, colors, radius, preset, labels
+  createdAt      DateTime     @default(now())
+
+  submissions    Submission[]
+
+  @@unique([formId, version])
+  @@index([formId])
+}
+
+model Submission {
+  id            String       @id @default(cuid())
+  formId        String
+  form          Form         @relation(fields: [formId], references: [id], onDelete: Cascade)
+  formVersionId String
+  formVersion   FormVersion  @relation(fields: [formVersionId], references: [id], onDelete: Restrict)
+  answers       Json         // Key-value map of fieldId -> answer value
+  respondentInfo Json?       // Metadata: browser, submission source, duration, etc.
+  submittedAt   DateTime     @default(now())
+
+  @@index([formId])
+  @@index([formVersionId])
+  @@index([submittedAt])
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action     String
+  entityType String
+  entityId   String
+  metadata   Json?
+  createdAt  DateTime @default(now())
+  formId     String?
+  form       Form?    @relation(fields: [formId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+}
